@@ -1,0 +1,20 @@
+<%- include("partials/header.ejs") %>
+
+<div class="post-image"><img src="/images/photo-1525338078858-d762b5e32f2c.avif" alt=""></div>
+
+<div class="post-container">
+    <% if (locals.post) {%>
+    <p id="date-posted"> <%= new Date(post.datePosted).toLocaleDateString("el-gr",{day:'numeric', month: 'long', year: 'numeric'}) %></p>
+    <p id="author"> <%= post.author %> </p>
+    <h1>
+        <%= post.title %>
+    </h1>
+    <p id="content">
+        <%= post.content %>
+    <% }else { %>    
+        <h1> The post no longer exists! </h1>
+        <% } %>
+</div>
+
+
+<%- include("partials/footer.ejs") %>
