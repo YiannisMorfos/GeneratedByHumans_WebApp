@@ -3,10 +3,18 @@
 <% const thisPost = locals.post %>
 
 <div class="new-post-container">
-    <form action="<%= thisPost && thisPost.id ? '/edit-post/' + thisPost.id : '/new' %>" method="POST">
+    <form action="<%= thisPost && thisPost.id ? '/edit-post/' + thisPost.id : '/new' %>" method="POST" enctype="multipart/form-data">
         <input type="text" class="title box" name="title" placeholder="Title" value="<%= thisPost && thisPost.title ? thisPost.title : '' %>" required>
         <textarea cols="60" rows="8" class="content box" name="content" placeholder="Content" required><%= thisPost && thisPost.content ? thisPost.content : '' %></textarea>
+        <% if (thisPost && thisPost.id) { %>
+            <!-- If editing an existing post -->
+            <input class="photo-upload" name="FeaturedImage" accept="image/*" type="file" id="FeaturedImage">
+        <% } else { %>
+            <!-- If creating a new post -->
+            <input class="photo-upload" name="FeaturedImage" accept="image/*" type="file" id="FeaturedImage">
+        <% } %>
         <input class="submit-button" type="submit" value="<%= thisPost && thisPost.id ? 'Update post' : 'Create post' %>">
+
     </form>
 </div>
 
