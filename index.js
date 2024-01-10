@@ -5,6 +5,8 @@ import pg from "pg";
 import multer from "multer";
 import path from 'path';
 import dotenv from 'dotenv';
+import session from 'express-session';
+import bcrypt from 'bcrypt';
 
 dotenv.config();
 
@@ -16,11 +18,15 @@ const db = new pg.Pool({
     password: process.env.DB_PASSWORD,
 });
 
-
-
 const PORT = process.env.PORT || 3000;
 
 const app = express()
+
+app.use(session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: true
+}));
 
 app.use(express.static("public"))
 
@@ -35,6 +41,30 @@ const storage = multer.diskStorage({
     }
 });
 
+function authorize(allowedRoles) {
+    return async (req, res, next) => {
+        if (req.session && req.session.user) {
+            try {
+                const userId = req.session.user.id;
+                const userQuery = 'SELECT role FROM users WHERE id = $1';
+                const { rows } = await db.query(userQuery, [userId]);
+
+                if (rows.length > 0 && allowedRoles.includes(rows[0].role)) {
+                    return next();
+                } else {
+                    return res.status(403).send("Access denied");
+                }
+            } catch (error) {
+                console.error('Authorization error:', error);
+                return res.status(500).send("Internal Server Error");
+            }
+        } else {
+            return res.status(403).send("Access denied");
+        }
+    };
+}
+
+
 const upload = multer({ storage: storage });
 
 app.get("/", (req, res) => {
@@ -45,11 +75,99 @@ app.get("/blog", (req, res) => {
     res.render("blog.ejs")
 })
 
-app.get("/new", (req, res) => {
+app.get('/register', (req, res) => {
+    res.render('register.ejs'); // Ensure there's a register.ejs file in your views directory
+});
+
+
+app.post('/register', async (req, res) => {
+    const { username, email, password } = req.body;
+
+    try {
+        // Check if email already exists
+        const emailCheckQuery = 'SELECT * FROM users WHERE email = $1';
+        const emailCheckResult = await db.query(emailCheckQuery, [email]);
+
+        if (emailCheckResult.rows.length > 0) {
+            return res.status(400).send('Email already in use');
+        }
+
+        // Check if username already exists
+        const usernameCheckQuery = 'SELECT * FROM users WHERE username = $1';
+        const usernameCheckResult = await db.query(usernameCheckQuery, [username]);
+
+        if (usernameCheckResult.rows.length > 0) {
+            return res.status(400).send('Username already in use');
+        }
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Insert new user into database
+        const insertUserQuery = 'INSERT INTO users (username, email, password, role) VALUES ($1, $2, $3, $4)';
+        await db.query(insertUserQuery, [username, email, hashedPassword, 'user']); // Default role is 'user'
+
+        res.redirect('/login'); // Redirect to login page after successful registration
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).send('An error occurred during registration');
+    }
+});
+
+
+app.get('/login', (req, res) => {
+    res.render('login.ejs', { session: req.session }); // Make sure you have a login.ejs file in your views directory
+});
+
+
+app.post('/login', async (req, res) => {
+    const { username, password } = req.body;
+
+    try {
+        // Check if user exists
+        const userQuery = 'SELECT * FROM users WHERE username = $1';
+        const { rows } = await db.query(userQuery, [username]);
+
+        if (rows.length > 0) {
+            const user = rows[0];
+
+            // Verify the password
+            const isValid = await bcrypt.compare(password, user.password);
+
+            if (isValid) {
+                // Set user info in session
+                req.session.user = { id: user.id, role: user.role };
+                res.redirect('/');
+            } else {
+                res.send('Invalid username or password');
+            }
+        } else {
+            res.send('Invalid username or password');
+        }
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).send('An error occurred during login');
+    }
+});
+
+app.get('/logout', (req, res) => {
+    if (req.session) {
+        req.session.destroy(err => {
+            if (err) {
+                // handle error
+            } else {
+                res.redirect('/login');
+            }
+        });
+    }
+});
+
+
+app.get("/new", authorize(['admin', 'author']), (req, res) => {
     res.render("new-post.ejs")
 })
 
-app.post("/new", upload.single('FeaturedImage'), (req, res) => {
+app.post("/new", authorize(['admin', 'author']), upload.single('FeaturedImage'), (req, res) => {
     const title = req.body.title;
     const content = req.body.content;
     const featuredImage = req.file ? req.file.filename : null; // Assuming multer is used
@@ -73,7 +191,7 @@ app.post("/new", upload.single('FeaturedImage'), (req, res) => {
 });
 
 
-app.get("/post/:id",(req, res) => {
+app.get("/post/:id", authorize(['admin', 'author']), (req, res) => {
     const postId = req.params.id;
     const query = "SELECT * FROM posts WHERE id = $1";
     const values = [postId];
@@ -114,7 +232,7 @@ app.get("/edit-post/:id", (req, res) => {
 });
 
 
-app.post("/edit-post/:id", upload.single('FeaturedImage'), (req, res) => {
+app.post("/edit-post/:id", authorize(['admin', 'author']), upload.single('FeaturedImage'), (req, res) => {
     const postId = req.params.id;
     const title = req.body.title;
     const content = req.body.content;
